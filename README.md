@@ -28,7 +28,3 @@ This repository is the source mirror for the bound Google Apps Script that power
 ## Development notes
 
 This project currently lives as a bound Apps Script attached to the spreadsheet. If local syncing is added later via `clasp`, this repository can become the main source of truth for script changes while the spreadsheet remains the runtime host.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](./LICENSE).
