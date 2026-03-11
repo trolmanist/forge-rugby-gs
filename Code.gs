@@ -4,6 +4,8 @@ const RATINGS_LOG_SHEET = 'ratings_log';
 const WEIGHTS_LOG_SHEET = 'weights_log';
 const RATINGS_ROLLUP_SHEET = 'ratings_rollup';
 const WEIGHTS_ROLLUP_SHEET = 'weights_rollup';
+const CONTRIBUTION_ALERT_RECIPIENTS = ['tomrholman@gmail.com'];
+const CONTRIBUTION_ALERT_PREVIEW_LIMIT = 10;
 
 const HEADER_ROW = 2;
 const DATA_START_ROW = 3;
@@ -361,6 +363,19 @@ function saveWorkspaceSubmission(payload) {
   ).setValues(output);
 
   rebuildSummary();
+  sendContributionAlert_({
+    type: 'ratings',
+    userEmail,
+    submittedAt,
+    sessionId,
+    savedChanges: output.length,
+    previewLines: output
+      .slice(0, CONTRIBUTION_ALERT_PREVIEW_LIMIT)
+      .map(row => {
+        const rowData = mapLogRow_(logHeaders, row);
+        return `${rowData.playerName} (${rowData.team}, ${rowData.position}) - ${rowData.attribute}: ${rowData.baselineValue} -> ${rowData.suggestedValue}`;
+      })
+  });
 
   return {
     savedChanges: output.length,
@@ -456,6 +471,16 @@ function saveAttributeWeightSubmission(payload) {
   ).setValues(output);
 
   rebuildAttributeWeightSummary();
+  sendContributionAlert_({
+    type: 'weights',
+    userEmail,
+    submittedAt,
+    sessionId,
+    savedChanges: output.length,
+    previewLines: output
+      .slice(0, CONTRIBUTION_ALERT_PREVIEW_LIMIT)
+      .map(row => `${row[2]} (${row[4]}) - ${row[5]} -> ${row[6]}`)
+  });
 
   return {
     savedChanges: output.length,
@@ -653,6 +678,50 @@ function median(arr) {
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function sendContributionAlert_(payload) {
+  if (!CONTRIBUTION_ALERT_RECIPIENTS.length) return;
+
+  const subjectPrefix = payload.type === 'weights' ? 'Weight contribution' : 'Rating contribution';
+  const previewLines = (payload.previewLines || []).filter(Boolean);
+  const extraChanges = Math.max(0, Number(payload.savedChanges || 0) - previewLines.length);
+  const emailBody = [
+    `${subjectPrefix} received for Forge Rugby.`,
+    '',
+    `Contributor: ${payload.userEmail || 'unknown'}`,
+    `Saved changes: ${payload.savedChanges || 0}`,
+    `Submitted at: ${formatAlertDate_(payload.submittedAt)}`,
+    `Session ID: ${payload.sessionId || ''}`,
+    '',
+    'Changes:',
+    previewLines.length ? previewLines.map(line => `- ${line}`).join('\n') : '- No preview available',
+    extraChanges ? `- ...and ${extraChanges} more change(s)` : '',
+    '',
+    `Spreadsheet: ${SpreadsheetApp.getActiveSpreadsheet().getUrl()}`
+  ].filter(Boolean).join('\n');
+
+  try {
+    MailApp.sendEmail({
+      to: CONTRIBUTION_ALERT_RECIPIENTS.join(','),
+      subject: `[Forge Rugby] ${subjectPrefix} by ${payload.userEmail || 'unknown'}`,
+      body: emailBody
+    });
+  } catch (error) {
+    console.error(`Failed to send contribution alert: ${error && error.message ? error.message : error}`);
+  }
+}
+
+function mapLogRow_(headers, values) {
+  return headers.reduce((acc, header, index) => {
+    acc[header] = values[index];
+    return acc;
+  }, {});
+}
+
+function formatAlertDate_(value) {
+  if (!(value instanceof Date)) return String(value || '');
+  return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 }
 
 function getAttributeWeightData_() {
