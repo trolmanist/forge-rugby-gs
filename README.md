@@ -1,6 +1,6 @@
-# Forge Rugby Google Sheets Apps Script
+# Forge Rugby - Google Sheets Apps Script
 
-Forge Rugby is a public Google Sheets workspace for crowdsourcing rugby player ratings during the 2026 Super Rugby Pacific season. Contributors use a custom sidebar to submit rating and weighting changes, while the sheet surfaces the live tables, rollups, and leaderboards.
+Forge Rugby is a public Google Sheets workspace for crowdsourcing rugby player ratings during the 2026 Super Rugby Pacific season. Contributors use a custom sidebar to submit rating changes, while the sheet surfaces the live tables, rollups, and leaderboards.
 
 This repository is the source mirror for the bound Google Apps Script that powers that spreadsheet.
 
@@ -24,7 +24,3 @@ This repository is the source mirror for the bound Google Apps Script that power
 - It is not a standalone web app.
 - It does not include the spreadsheet data model itself.
 - The Google Sheet is the live product; this repository contains the script files used by that sheet.
-
-## Development notes
-
-This project currently lives as a bound Apps Script attached to the spreadsheet. If local syncing is added later via `clasp`, this repository can become the main source of truth for script changes while the spreadsheet remains the runtime host.
