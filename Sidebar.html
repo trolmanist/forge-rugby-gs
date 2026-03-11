@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 12px;
+        font-size: 13px;
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+      }
+      .small {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 10px;
+      }
+      .controls {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      input[type="text"], select, button {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        font-size: 13px;
+      }
+      button {
+        cursor: pointer;
+      }
+      .actions {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .meta, .status, .helper {
+        margin: 10px 0;
+      }
+      .helper {
+        font-size: 12px;
+        color: #555;
+        background: #f8f8f8;
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+      .table-wrap {
+        max-height: 520px;
+        overflow: auto;
+        border: 1px solid #ddd;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th, td {
+        border: 1px solid #ddd;
+        padding: 6px;
+        text-align: left;
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+      th {
+        background: #f5f5f5;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      td.meta-cell {
+        background: #fafafa;
+      }
+      td.input-cell {
+        text-align: center;
+      }
+      td input[type="number"] {
+        width: 68px;
+        padding: 4px;
+      }
+      .changed {
+        background: #fff3cd;
+      }
+      .warning {
+        color: #8a6d3b;
+      }
+      .error {
+        color: #b42318;
+      }
+      .success {
+        color: #0f7a37;
+      }
+      .scroll-hint {
+        display: block;
+        margin-top: 4px;
+        font-weight: 700;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Forge Rugby</h2>
+    <div class="small" id="workspaceDescription">
+      Search and filter players, edit multiple ratings, then submit changed cells only.
+    </div>
+
+    <div class="controls">
+      <div>
+        <label for="workspaceMode">Workspace</label>
+        <select id="workspaceMode" onchange="handleWorkspaceModeChange()">
+          <option value="playerRatings">Ratings</option>
+          <option value="attributeWeights">Weights</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="controls" id="playerControls">
+      <div>
+        <label for="nameSearch">Player name</label>
+        <input type="text" id="nameSearch" placeholder="Search by name e.g. McReight">
+      </div>
+
+      <div>
+        <label for="teamFilter">Team</label>
+        <select id="teamFilter"></select>
+      </div>
+
+      <div>
+        <label for="positionFilter">Position</label>
+        <select id="positionFilter"></select>
+      </div>
+
+      <div>
+        <label for="nationalityFilter">Nationality</label>
+        <select id="nationalityFilter"></select>
+      </div>
+
+      <div>
+        <label for="attributeGroup">Attribute group</label>
+        <select id="attributeGroup"></select>
+      </div>
+    </div>
+
+    <div class="helper hidden" id="weightHelper">
+      Edit the attribute weight matrix and keep every position column totaling 100 before submitting.
+    </div>
+
+    <div class="actions">
+      <button id="loadButton" onclick="loadRows()">Load players</button>
+      <button onclick="submitChanges()">Submit changes</button>
+      <button onclick="resetGrid()">Reset unsaved edits</button>
+    </div>
+
+    <div class="meta" id="meta"></div>
+    <div class="status" id="status"></div>
+
+    <div class="table-wrap">
+      <table id="grid">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <script>
+      let currentMode = 'playerRatings';
+      let originalRows = [];
+      let editableRows = [];
+      let currentColumns = [];
+      let sessionId = makeSessionId();
+
+      function makeSessionId() {
+        return 'session_' + Math.random().toString(36).slice(2) + '_' + Date.now();
+      }
+
+      function init() {
+        loadPlayerConfig();
+        updateModeUi();
+      }
+
+      function handleWorkspaceModeChange() {
+        currentMode = document.getElementById('workspaceMode').value;
+        originalRows = [];
+        editableRows = [];
+        currentColumns = [];
+        clearGrid();
+        document.getElementById('status').textContent = '';
+        updateModeUi();
+
+        if (currentMode === 'playerRatings') {
+          loadPlayerConfig();
+        } else {
+          loadAttributeWeightConfig();
+        }
+      }
+
+      function updateModeUi() {
+        const isPlayerMode = currentMode === 'playerRatings';
+        document.getElementById('playerControls').classList.toggle('hidden', !isPlayerMode);
+        document.getElementById('weightHelper').classList.toggle('hidden', isPlayerMode);
+        document.getElementById('loadButton').textContent = isPlayerMode ? 'Load ratings' : 'Load weights';
+        document.getElementById('workspaceDescription').textContent = isPlayerMode
+          ? 'Search and filter players, edit multiple ratings, then submit changed cells only.'
+          : 'Review the live weight matrix, rebalance columns to 100, then submit changed cells only.';
+      }
+
+      function loadPlayerConfig() {
+        google.script.run
+          .withSuccessHandler(config => {
+            populateSelect('teamFilter', ['All'].concat(config.teams || []));
+            populateSelect('positionFilter', ['All'].concat(config.positions || []));
+            populateSelect('nationalityFilter', ['All'].concat(config.nationalities || []));
+            populateSelect('attributeGroup', config.attributeGroups || ['Show all']);
+            document.getElementById('meta').textContent = `${config.totalPlayers} total players available`;
+          })
+          .withFailureHandler(showError)
+          .getWorkspaceConfig();
+      }
+
+      function loadAttributeWeightConfig() {
+        google.script.run
+          .withSuccessHandler(config => {
+            const totalSummary = formatTotalsSummary(config.totals || {});
+            document.getElementById('meta').textContent =
+              `${config.totalAttributes} attributes across ${config.positionGroups.length} position groups` +
+              (totalSummary ? ` • current totals: ${totalSummary}` : '');
+          })
+          .withFailureHandler(showError)
+          .getAttributeWeightsConfig();
+      }
+
+      function populateSelect(id, values) {
+        const el = document.getElementById(id);
+        el.innerHTML = values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function clearGrid() {
+        document.querySelector('#grid thead').innerHTML = '';
+        document.querySelector('#grid tbody').innerHTML = '';
+      }
+
+      function currentFilters() {
+        return {
+          nameSearch: document.getElementById('nameSearch').value,
+          team: document.getElementById('teamFilter').value,
+          position: document.getElementById('positionFilter').value,
+          nationality: document.getElementById('nationalityFilter').value,
+          attributeGroup: document.getElementById('attributeGroup').value
+        };
+      }
+
+      function loadRows() {
+        document.getElementById('status').textContent = 'Loading...';
+
+        if (currentMode === 'playerRatings') {
+          loadPlayerRows();
+          return;
+        }
+
+        loadAttributeWeightRows();
+      }
+
+      function loadPlayerRows() {
+        google.script.run
+          .withSuccessHandler(result => {
+            currentColumns = result.attributes;
+            originalRows = JSON.parse(JSON.stringify(result.rows));
+            editableRows = JSON.parse(JSON.stringify(result.rows));
+            renderPlayerGrid();
+
+            let metaText = `${result.totalFilteredPlayers} matching players`;
+            if (result.wasCapped) {
+              metaText += ` • showing first ${result.visibleCount} only`;
+              document.getElementById('status').innerHTML =
+                `<span class="warning">Showing first ${result.maxVisibleRows} matching players - refine filters to narrow further.</span>` +
+                `<span class="scroll-hint">Scroll to see attributes →</span>`;
+            } else {
+              metaText += ` • showing ${result.visibleCount}`;
+              setLoadedStatus('attributes');
+            }
+            metaText += ` • ${currentColumns.length} editable attributes`;
+            document.getElementById('meta').textContent = metaText;
+          })
+          .withFailureHandler(showError)
+          .loadWorkspaceRows(currentFilters());
+      }
+
+      function loadAttributeWeightRows() {
+        google.script.run
+          .withSuccessHandler(result => {
+            currentColumns = result.columns;
+            originalRows = JSON.parse(JSON.stringify(result.rows));
+            editableRows = JSON.parse(JSON.stringify(result.rows));
+            renderAttributeWeightGrid();
+            updateAttributeWeightMeta();
+            setLoadedStatus('positions');
+          })
+          .withFailureHandler(showError)
+          .loadAttributeWeightRows();
+      }
+
+      function renderPlayerGrid() {
+        const thead = document.querySelector('#grid thead');
+        const tbody = document.querySelector('#grid tbody');
+
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
+        const headRow = document.createElement('tr');
+        const fixedHeaders = ['Name', 'Team', 'Position'];
+
+        headRow.innerHTML =
+          fixedHeaders.map(h => `<th>${escapeHtml(h)}</th>`).join('') +
+          currentColumns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('');
+        thead.appendChild(headRow);
+
+        editableRows.forEach((row, rowIndex) => {
+          const tr = document.createElement('tr');
+
+          let html = `
+            <td class="meta-cell">${escapeHtml(row.name)}</td>
+            <td class="meta-cell">${escapeHtml(row.team)}</td>
+            <td class="meta-cell">${escapeHtml(row.position)}</td>
+          `;
+
+          currentColumns.forEach(column => {
+            const value = row[column.key] ?? '';
+            const changed = Number(value) !== Number(originalRows[rowIndex][column.key]);
+            html += `
+              <td class="${changed ? 'changed' : ''} input-cell">
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  max="99"
+                  value="${value}"
+                  data-row="${rowIndex}"
+                  data-key="${column.key}"
+                  onchange="updateValue(this)"
+                >
+              </td>
+            `;
+          });
+
+          tr.innerHTML = html;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderAttributeWeightGrid() {
+        const thead = document.querySelector('#grid thead');
+        const tbody = document.querySelector('#grid tbody');
+
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
+        const headRow = document.createElement('tr');
+        headRow.innerHTML =
+          '<th>Attribute</th>' +
+          currentColumns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('');
+        thead.appendChild(headRow);
+
+        editableRows.forEach((row, rowIndex) => {
+          const tr = document.createElement('tr');
+
+          let html = `<td class="meta-cell">${escapeHtml(row.attribute)}</td>`;
+
+          currentColumns.forEach(column => {
+            const value = row[column.key] ?? '';
+            const changed = Number(value) !== Number(originalRows[rowIndex][column.key]);
+            html += `
+              <td class="${changed ? 'changed' : ''} input-cell">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                  value="${value}"
+                  data-row="${rowIndex}"
+                  data-key="${column.key}"
+                  onchange="updateValue(this)"
+                >
+              </td>
+            `;
+          });
+
+          tr.innerHTML = html;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function updateValue(input) {
+        const rowIndex = Number(input.dataset.row);
+        const key = input.dataset.key;
+        editableRows[rowIndex][key] = Number(input.value);
+
+        if (currentMode === 'playerRatings') {
+          renderPlayerGrid();
+        } else {
+          renderAttributeWeightGrid();
+          updateAttributeWeightMeta();
+        }
+
+        updateChangedCount();
+      }
+
+      function updateChangedCount() {
+        let changes = 0;
+        editableRows.forEach((row, rowIndex) => {
+          currentColumns.forEach(column => {
+            if (Number(row[column.key]) !== Number(originalRows[rowIndex][column.key])) {
+              changes += 1;
+            }
+          });
+        });
+
+        if (currentMode === 'attributeWeights') {
+          const invalidTotals = getInvalidWeightTotals();
+          if (invalidTotals.length) {
+            document.getElementById('status').innerHTML =
+              `<span class="error">${changes} unsaved change(s) - totals must equal 100 for: ${escapeHtml(invalidTotals.join(', '))}</span>`;
+            return;
+          }
+          document.getElementById('status').innerHTML =
+            `<span class="success">${changes} unsaved change(s) - all position totals = 100</span>`;
+          return;
+        }
+
+        document.getElementById('status').textContent = `${changes} unsaved change(s)`;
+      }
+
+      function resetGrid() {
+        editableRows = JSON.parse(JSON.stringify(originalRows));
+        if (currentMode === 'playerRatings') {
+          renderPlayerGrid();
+        } else {
+          renderAttributeWeightGrid();
+          updateAttributeWeightMeta();
+        }
+        document.getElementById('status').textContent = 'Unsaved edits reset.';
+      }
+
+      function submitChanges() {
+        document.getElementById('status').textContent = 'Submitting...';
+
+        if (currentMode === 'attributeWeights') {
+          const invalidTotals = getInvalidWeightTotals();
+          if (invalidTotals.length) {
+            document.getElementById('status').innerHTML =
+              `<span class="error">Cannot submit until every position column totals 100. Fix: ${escapeHtml(invalidTotals.join(', '))}</span>`;
+            return;
+          }
+
+          google.script.run
+            .withSuccessHandler(result => {
+              document.getElementById('status').textContent = result.message;
+              sessionId = makeSessionId();
+              loadRows();
+            })
+            .withFailureHandler(showError)
+            .saveAttributeWeightSubmission({
+              sessionId,
+              columns: currentColumns,
+              originalRows,
+              rows: editableRows
+            });
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(result => {
+            document.getElementById('status').textContent = result.message;
+            sessionId = makeSessionId();
+            loadRows();
+          })
+          .withFailureHandler(showError)
+          .saveWorkspaceSubmission({
+            sessionId,
+            attributes: currentColumns,
+            originalRows,
+            rows: editableRows
+          });
+      }
+
+      function getWeightTotals() {
+        const totals = {};
+        currentColumns.forEach(column => {
+          totals[column.label] = editableRows.reduce((sum, row) => {
+            return sum + Number(row[column.key] || 0);
+          }, 0);
+        });
+        return totals;
+      }
+
+      function getInvalidWeightTotals() {
+        if (currentMode !== 'attributeWeights') return [];
+        const totals = getWeightTotals();
+        return currentColumns
+          .filter(column => totals[column.label] !== 100)
+          .map(column => `${column.label} (${totals[column.label]})`);
+      }
+
+      function updateAttributeWeightMeta() {
+        const totals = getWeightTotals();
+        document.getElementById('meta').textContent =
+          `${editableRows.length} attributes across ${currentColumns.length} position groups • totals: ${formatTotalsSummary(totals)}`;
+      }
+
+      function formatTotalsSummary(totals) {
+        return Object.keys(totals)
+          .map(label => `${label} ${totals[label]}`)
+          .join(' • ');
+      }
+
+      function showError(error) {
+        const message = error && error.message ? error.message : String(error);
+        document.getElementById('status').innerHTML = `<span class="error">${escapeHtml(message)}</span>`;
+      }
+
+      function setLoadedStatus(target) {
+        const label = target === 'positions' ? 'Scroll to see positions →' : 'Scroll to see attributes →';
+        document.getElementById('status').innerHTML =
+          `Loaded.<span class="scroll-hint">${escapeHtml(label)}</span>`;
+      }
+
+      init();
+    </script>
+  </body>
+</html>
